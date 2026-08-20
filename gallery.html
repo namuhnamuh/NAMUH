@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NAMUH — The Gallery</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}
+  #canvas-wrap{position:fixed;inset:0}
+  canvas{display:block}
+
+  #loader{position:fixed;inset:0;background:#0a0a0c;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;transition:opacity 1s}
+  #loader.hide{opacity:0;pointer-events:none}
+  .load-logo-img{height:44px;width:auto;margin-bottom:1.5rem}
+  .load-bar{width:180px;height:1px;background:#222;position:relative;overflow:hidden}
+  .load-fill{position:absolute;left:0;top:0;height:100%;width:0;background:#e8e4dc;transition:width 0.3s}
+  .load-text{font-size:9px;letter-spacing:0.24em;text-transform:uppercase;color:#555;margin-top:1rem}
+
+  .logo-img{position:fixed;top:1.6rem;left:50%;transform:translateX(-50%);height:18px;width:auto;z-index:20;filter:drop-shadow(0 2px 20px rgba(0,0,0,0.9));pointer-events:none}
+  .hint{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.38);z-index:20;text-align:center;text-shadow:0 2px 10px #000}
+  .exit{position:fixed;top:1.5rem;left:1.5rem;font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.5);z-index:20;cursor:pointer;border:0.5px solid rgba(255,255,255,0.2);padding:8px 16px;background:rgba(0,0,0,0.3);text-decoration:none;transition:all 0.2s}
+  .exit:hover{color:#fff;border-color:rgba(255,255,255,0.5)}
+
+  #tooltip{position:fixed;pointer-events:none;z-index:30;background:rgba(0,0,0,0.85);border:0.5px solid rgba(255,255,255,0.2);padding:10px 16px;opacity:0;transition:opacity 0.2s;transform:translate(-50%,-130%)}
+  #tooltip.show{opacity:1}
+  .tt-name{font-size:11px;letter-spacing:0.1em;color:#fff;text-transform:uppercase}
+  .tt-cta{font-size:8px;letter-spacing:0.16em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-top:4px}
+
+  #fade{position:fixed;inset:0;z-index:55;background:#05070a;opacity:0;pointer-events:none;transition:opacity 1.1s}
+  #fade.show{opacity:1}
+
+  /* full-screen view of a single work */
+  #lightbox{position:fixed;inset:0;z-index:60;background:rgba(4,4,6,0.96);display:flex;align-items:center;
+    justify-content:center;flex-direction:column;gap:18px;opacity:0;pointer-events:none;transition:opacity .45s}
+  #lightbox.show{opacity:1;pointer-events:auto}
+  #lightbox img{max-width:84vw;max-height:74vh;object-fit:contain;box-shadow:0 30px 80px rgba(0,0,0,.8)}
+  #lb-title{font-size:10px;letter-spacing:0.28em;text-transform:uppercase;color:rgba(255,255,255,0.75)}
+  #lb-close{position:fixed;top:1.5rem;right:1.5rem;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;
+    color:rgba(255,255,255,0.6);cursor:pointer;border:0.5px solid rgba(255,255,255,0.25);padding:8px 16px}
+  #lb-close:hover{color:#fff;border-color:rgba(255,255,255,0.6)}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <img class="load-logo-img" src="images/namuh-wordmark.png" alt="NAMUH">
+  <div class="load-bar"><div class="load-fill" id="loadFill"></div></div>
+  <div class="load-text">Hanging the work</div>
+</div>
+<div id="canvas-wrap"></div>
+<img class="logo-img" src="images/namuh-wordmark.png" alt="NAMUH">
+
+<a class="exit" href="index.html">← Cave</a>
+<div class="hint">Drag to look around · Click a work to view · The opening leads back</div>
+<div id="tooltip"><div class="tt-name"></div><div class="tt-cta">Click to view →</div></div>
+
+<div id="fade"></div>
+
+<div id="lightbox">
+  <img id="lb-img" alt="">
+  <div id="lb-title"></div>
+  <div id="lb-close">Close ✕</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ===========================================================
+   NAMUH — THE GALLERY
+   A second room. Rough cave shell, clean gallery walls inside.
+   Same navigation as the cave: drag to look, click to view.
+   =========================================================== */
+
+/* Each work: asset, title, aspect ratio, and where it hangs.
+   wall: 'back' | 'left' | 'right'   ·   u = position along that wall */
+const ART = [
+  /* ---- BACK WALL · the statement wall ---- */
+  { src:"images/namuh-gal-09-iam.jpg", title:"I Am Namuh",   ratio:0.714, wall:'back',  u:-4.9, big:1 },
+  { src:"images/namuh-gal-10-icons.jpg", title:"Icons",        ratio:1.415, wall:'back',  u: 0.0, hero:1 },
+  { src:"images/namuh-gal-07-onlyhuman.jpg", title:"Only Human",   ratio:0.714, wall:'back',  u: 4.9, big:1 },
+
+  /* ---- LEFT WALL · London ---- */
+  { src:"images/namuh-gal-01-abotz.jpg", title:"Abotz",        ratio:0.667, wall:'left',  u:-12.6 },
+  { src:"images/namuh-gal-02-chinatown.jpg", title:"Chinatown",    ratio:0.667, wall:'left',  u: -9.0 },
+  { src:"images/namuh-gal-03-trafalgar.jpg", title:"Trafalgar",    ratio:0.777, wall:'left',  u: -5.4 },
+  { src:"images/namuh-gal-16-lion.jpg", title:"The Lion",     ratio:0.613, wall:'left',  u: -1.8 },
+  { src:"images/namuh-gal-17-sit.jpg", title:"Sit",          ratio:0.666, wall:'left',  u:  1.8 },
+  { src:"images/namuh-gal-18-motion.jpg", title:"Motion",       ratio:0.796, wall:'left',  u:  5.4 },
+  { src:"images/namuh-gal-04-decks.jpg", title:"The Decks",    ratio:1.500, wall:'left',  u:  9.4 },
+  { src:"images/namuh-gal-15-redroom.jpg", title:"Red Room",     ratio:0.666, wall:'left',  u: 13.4 },
+
+  /* ---- RIGHT WALL · elsewhere ---- */
+  { src:"images/namuh-gal-12-pagoda.jpg", title:"Pagoda",       ratio:0.584, wall:'right', u:-12.6 },
+  { src:"images/namuh-gal-13-bamboo.jpg", title:"Bamboo",       ratio:0.663, wall:'right', u: -9.0 },
+  { src:"images/namuh-gal-11-hilltop.jpg", title:"Hilltop",      ratio:0.663, wall:'right', u: -5.4 },
+  { src:"images/namuh-gal-14-walkway.jpg", title:"Walkway",      ratio:1.508, wall:'right', u: -1.4 },
+  { src:"images/namuh-gal-05-turn.jpg", title:"Turn",         ratio:0.624, wall:'right', u:  2.4 },
+  { src:"images/namuh-gal-19-portrait.jpg", title:"Portrait",     ratio:0.666, wall:'right', u:  5.8 },
+  { src:"images/namuh-gal-06-lightshaft.jpg", title:"Light Shaft",  ratio:0.636, wall:'right', u:  9.2 },
+  { src:"images/namuh-gal-08-humane.jpg", title:"Humane",       ratio:0.700, wall:'right', u: 13.0, big:1 },
+];
+
+const WORDMARK = "images/namuh-wordmark.png";
+
+const ROOM = { halfW:10, back:-16, front:16, floor:-4, ceil:6 };
+const HANG_Y   = 0.15;   // centre line of every work — a real gallery hangs to a line
+const ART_H    = 2.7;    // shared height; width follows the ratio
+const POSTER_H = 3.0;
+const HERO_H   = 3.6;   // the Icons grid anchors the back wall
+
+let scene, camera, renderer, raycaster, mouse;
+let works=[], hovered=null, motes=null, uplights=[], doorHit=null, doorGlow=null;
+let yaw=0, pitch=0, targetYaw=0, targetPitch=0;   // start facing the Icons wall
+let isDragging=false, lastX=0, lastY=0, dragMoved=0;
+
+function init(){
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0c0d10, 0.020);
+
+  camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.1, 140);
+  camera.position.set(0, 0, -4.0);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(0x0c0d10);
+  document.getElementById("canvas-wrap").appendChild(renderer.domElement);
+
+  raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
+
+  buildShell();
+  buildWalls();
+  buildDoorway();
+  buildArt();
+  buildMotes();
+  buildLights();
+
+  addEvents();
+  animate();
+
+  let p=0; const li=setInterval(()=>{
+    p+=7; document.getElementById("loadFill").style.width=Math.min(p,100)+"%";
+    if(p>=100){ clearInterval(li); setTimeout(()=>document.getElementById("loader").classList.add("hide"),300); }
+  },60);
+}
+
+/* ---------- textures ---------- */
+function makeRockTexture(res, tint){
+  res=res||1024; tint=tint||0;
+  const c=document.createElement("canvas"); c.width=res; c.height=res;
+  const ctx=c.getContext("2d");
+  ctx.fillStyle=`rgb(${58+tint},${60+tint},${66+tint})`; ctx.fillRect(0,0,res,res);
+  for(let i=0;i<60000;i++){ const x=Math.random()*res,y=Math.random()*res,v=Math.random();
+    const g=Math.floor(48+tint+v*70); ctx.fillStyle=`rgb(${g},${g+2},${g+6})`;
+    ctx.fillRect(x,y,Math.random()*2.5+0.4,Math.random()*2.5+0.4); }
+  for(let i=0;i<280;i++){ ctx.strokeStyle=`rgba(6,8,11,${Math.random()*0.55})`; ctx.lineWidth=Math.random()*2.5;
+    ctx.beginPath(); const sx=Math.random()*res,sy=Math.random()*res; ctx.moveTo(sx,sy);
+    ctx.bezierCurveTo(sx+Math.random()*70-35,sy+Math.random()*70-35,sx+Math.random()*70-35,sy+Math.random()*70-35,sx+Math.random()*110-55,sy+Math.random()*110-55);
+    ctx.stroke(); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=8; return t;
+}
+/* pale plaster — the gallery skin over the rock */
+function makePlasterTexture(res){
+  res=res||1024;
+  const c=document.createElement("canvas"); c.width=res; c.height=res; const ctx=c.getContext("2d");
+  ctx.fillStyle="#d9d5cd"; ctx.fillRect(0,0,res,res);
+  for(let i=0;i<45000;i++){ const x=Math.random()*res,y=Math.random()*res,g=200+Math.floor(Math.random()*42);
+    ctx.fillStyle=`rgba(${g},${g-3},${g-9},0.5)`; ctx.fillRect(x,y,Math.random()*2.2,Math.random()*2.2); }
+  // trowel drift, so it isn't a flat colour
+  for(let i=0;i<120;i++){ ctx.strokeStyle=`rgba(150,146,138,${Math.random()*0.10})`; ctx.lineWidth=Math.random()*40+10;
+    ctx.beginPath(); const sy=Math.random()*res; ctx.moveTo(0,sy);
+    ctx.bezierCurveTo(res*0.3,sy+Math.random()*60-30,res*0.7,sy+Math.random()*60-30,res,sy+Math.random()*40-20);
+    ctx.stroke(); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=8; return t;
+}
+function makeBumpTexture(res){
+  res=res||768;
+  const c=document.createElement("canvas"); c.width=res; c.height=res; const ctx=c.getContext("2d");
+  ctx.fillStyle="#808080"; ctx.fillRect(0,0,res,res);
+  for(let i=0;i<26000;i++){ const x=Math.random()*res,y=Math.random()*res,g=Math.floor(Math.random()*255);
+    ctx.fillStyle=`rgb(${g},${g},${g})`; ctx.fillRect(x,y,Math.random()*3+0.5,Math.random()*3+0.5); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+}
+
+/* ---------- the cave shell: rough floor + ceiling ---------- */
+function buildShell(){
+  const rock=makeRockTexture(1024,0), bump=makeBumpTexture(768);
+  rock.repeat.set(5,5); bump.repeat.set(5,5);
+
+  const floorGeo=new THREE.PlaneGeometry(52,52,90,90); const fp=floorGeo.attributes.position;
+  for(let i=0;i<fp.count;i++){ const x=fp.getX(i),y=fp.getY(i);
+    fp.setZ(i, Math.sin(x*0.35)*0.16+Math.cos(y*0.42)*0.16+Math.random()*0.16); }
+  floorGeo.computeVertexNormals();
+  const floor=new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({
+    map:rock, bumpMap:bump, bumpScale:0.55, roughness:0.98, metalness:0.02, color:0x5c6067 }));
+  floor.rotation.x=-Math.PI/2; floor.position.y=ROOM.floor; scene.add(floor);
+
+  // rough rock ceiling — reminds you you're underground
+  const ceilGeo=new THREE.PlaneGeometry(52,52,60,60); const cp=ceilGeo.attributes.position;
+  for(let i=0;i<cp.count;i++){ const x=cp.getX(i),y=cp.getY(i);
+    cp.setZ(i, -(Math.sin(x*0.5)*0.55+Math.cos(y*0.45)*0.55+Math.random()*0.7)); }
+  ceilGeo.computeVertexNormals();
+  const ceil=new THREE.Mesh(ceilGeo, new THREE.MeshStandardMaterial({
+    map:rock.clone(), bumpMap:bump, bumpScale:0.6, roughness:0.97, metalness:0.02, color:0x4a4e55 }));
+  ceil.rotation.x=Math.PI/2; ceil.position.y=ROOM.ceil; scene.add(ceil);
+
+  // stalactites, only at the edges so they never sit over the work
+  const stalMat=new THREE.MeshStandardMaterial({ map:rock.clone(), bumpMap:bump, bumpScale:0.4,
+    roughness:0.92, metalness:0.02, color:0x585c63 });
+  for(let i=0;i<40;i++){
+    const h=Math.random()*2.6+1.4, r=Math.random()*0.26+0.07;
+    const s=new THREE.Mesh(new THREE.ConeGeometry(r,h,6), stalMat);
+    const edge = Math.random()<0.5 ? -1 : 1;
+    s.position.set(edge*(ROOM.halfW+1.5+Math.random()*5), ROOM.ceil-h/2+0.4, ROOM.back+Math.random()*(ROOM.front-ROOM.back));
+    s.rotation.x=Math.PI; s.rotation.y=Math.random()*Math.PI; scene.add(s);
+  }
+}
+
+/* ---------- the gallery: clean plaster walls set inside the cave ---------- */
+function buildWalls(){
+  const pl=makePlasterTexture(1024), bump=makeBumpTexture(768);
+  pl.repeat.set(3,1.4); bump.repeat.set(3,1.4);
+  const wallMat=new THREE.MeshStandardMaterial({
+    map:pl, bumpMap:bump, bumpScale:0.12, roughness:0.95, metalness:0.0, color:0xb9b5ad });
+
+  const H = ROOM.ceil-ROOM.floor;
+  const mkWall=(w,x,z,ry)=>{
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(w,H,1,1), wallMat);
+    m.position.set(x, (ROOM.ceil+ROOM.floor)/2, z); m.rotation.y=ry; scene.add(m); return m;
+  };
+  mkWall(ROOM.halfW*2, 0, ROOM.back, 0);                        // back — solid, holds the Icons wall
+
+  // FRONT wall: one panel with the cave mouth cut clean through it.
+  // Extruded so the cut has real thickness — you see the wall's depth in the opening.
+  const frontShape=new THREE.Shape();
+  frontShape.moveTo(-ROOM.halfW, ROOM.floor);
+  frontShape.lineTo( ROOM.halfW, ROOM.floor);
+  frontShape.lineTo( ROOM.halfW, ROOM.ceil);
+  frontShape.lineTo(-ROOM.halfW, ROOM.ceil);
+  frontShape.closePath();
+  const hole=new THREE.Path();
+  mouthPath().forEach((p,i)=> i ? hole.lineTo(p[0],p[1]) : hole.moveTo(p[0],p[1]));
+  hole.closePath();
+  frontShape.holes.push(hole);
+
+  const frontGeo=new THREE.ExtrudeGeometry(frontShape,{ depth:1.1, bevelEnabled:false, curveSegments:2 });
+  const plasterFace=wallMat.clone(); plasterFace.map=pl.clone();
+  plasterFace.map.wrapS=plasterFace.map.wrapT=THREE.RepeatWrapping;
+  plasterFace.map.repeat.set(0.14,0.14);
+  plasterFace.side=THREE.DoubleSide;
+  const revealMat=new THREE.MeshStandardMaterial({ color:0x8a867e, roughness:0.98, side:THREE.DoubleSide });
+  const frontWall=new THREE.Mesh(frontGeo, [plasterFace, revealMat]);
+  frontWall.position.z=ROOM.front;      // extrudes away from the room; inner face on ROOM.front
+  scene.add(frontWall);
+  mkWall(ROOM.front-ROOM.back, -ROOM.halfW, (ROOM.front+ROOM.back)/2,  Math.PI/2);  // left
+  mkWall(ROOM.front-ROOM.back,  ROOM.halfW, (ROOM.front+ROOM.back)/2, -Math.PI/2);  // right
+
+  // warm gradient rising off the floor line — sells the uplight on the plaster
+  const upTex=(()=>{
+    const c=document.createElement('canvas'); c.width=8; c.height=256;
+    const x=c.getContext('2d');
+    const g=x.createLinearGradient(0,256,0,0);
+    g.addColorStop(0,   'rgba(255,214,158,0.42)');
+    g.addColorStop(0.35,'rgba(255,214,158,0.16)');
+    g.addColorStop(1,   'rgba(255,214,158,0)');
+    x.fillStyle=g; x.fillRect(0,0,8,256);
+    return new THREE.CanvasTexture(c);
+  })();
+  const upMat=new THREE.MeshBasicMaterial({map:upTex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending});
+  const upBand=(w,x,z,ry)=>{ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,4.2), upMat);
+    m.position.set(x, ROOM.floor+2.1, z); m.rotation.y=ry; scene.add(m); };
+  upBand(ROOM.halfW*2, 0, ROOM.back+0.06, 0);
+  const upSideW=(ROOM.halfW*2-MOUTH.w)/2;
+  upBand(upSideW, -(MOUTH.w/2+upSideW/2), ROOM.front-0.06, 0);
+  upBand(upSideW,  (MOUTH.w/2+upSideW/2), ROOM.front-0.06, 0);
+  upBand(ROOM.front-ROOM.back, -ROOM.halfW+0.06, (ROOM.front+ROOM.back)/2,  Math.PI/2);
+  upBand(ROOM.front-ROOM.back,  ROOM.halfW-0.06, (ROOM.front+ROOM.back)/2, -Math.PI/2);
+
+  // skirting shadow where plaster meets rock — stops the walls floating
+  const skirtMat=new THREE.MeshStandardMaterial({color:0x2a2c31, roughness:1});
+  const skirt=(w,x,z,ry)=>{ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,0.5),skirtMat);
+    m.position.set(x, ROOM.floor+0.25, z); m.rotation.y=ry; scene.add(m); };
+  skirt(ROOM.halfW*2, 0, ROOM.back+0.02, 0);
+  const sideW=(ROOM.halfW*2-MOUTH.w)/2;
+  skirt(sideW, -(MOUTH.w/2+sideW/2), ROOM.front-0.02, 0);
+  skirt(sideW,  (MOUTH.w/2+sideW/2), ROOM.front-0.02, 0);
+  skirt(ROOM.front-ROOM.back, -ROOM.halfW+0.02, (ROOM.front+ROOM.back)/2,  Math.PI/2);
+  skirt(ROOM.front-ROOM.back,  ROOM.halfW-0.02, (ROOM.front+ROOM.back)/2, -Math.PI/2);
+
+  // floor uplighters — small fittings sitting against the skirting
+  const canMat=new THREE.MeshStandardMaterial({color:0x1a1c20, roughness:0.45, metalness:0.7});
+  const glowMat=new THREE.MeshBasicMaterial({color:0xffe9c9});
+  function uplight(x,z,dirX,dirZ){
+    const can=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.16,0.20,12), canMat);
+    can.position.set(x, ROOM.floor+0.12, z); scene.add(can);
+    // hot lens so you can see the source, not just the effect
+    const lens=new THREE.Mesh(new THREE.CircleGeometry(0.10,12), glowMat);
+    lens.position.set(x, ROOM.floor+0.225, z); lens.rotation.x=-Math.PI/2; scene.add(lens);
+    // the actual throw, aimed up the wall
+    const sp=new THREE.SpotLight(0xffe4bd, 1.5, 12, Math.PI/7, 0.85, 1.6);
+    sp.position.set(x, ROOM.floor+0.22, z);
+    sp.target.position.set(x+dirX*0.35, ROOM.ceil-1.0, z+dirZ*0.35);
+    scene.add(sp); scene.add(sp.target);
+    uplights.push({sp, base:1.5, phase:Math.random()*Math.PI*2});
+  }
+  // back wall
+  [-8.6,-4.2,0,4.2,8.6].forEach(x=> uplight(x, ROOM.back+0.42, 0, 1));
+  [-8.6,-4.6,4.6,8.6].forEach(x=> uplight(x, ROOM.front-0.42, 0, -1));
+  // side walls — spaced down the length, between the works
+  [-14.4,-10.8,-7.2,-3.6,0,3.6,7.2,11.2,14.4].forEach(z=>{
+    uplight(-ROOM.halfW+0.42, z, 1, 0); uplight(ROOM.halfW-0.42, z, -1, 0);
+  });
+
+  // lighting track running the length of the ceiling
+  const trackMat=new THREE.MeshStandardMaterial({color:0x1e2024, roughness:0.4, metalness:0.75});
+  [-1,1].forEach(side=>{
+    const t=new THREE.Mesh(new THREE.BoxGeometry(0.09,0.09, ROOM.front-ROOM.back-2), trackMat);
+    t.position.set(side*(ROOM.halfW-2.2), ROOM.ceil-1.6, (ROOM.front+ROOM.back)/2); scene.add(t);
+  });
+  const tb=new THREE.Mesh(new THREE.BoxGeometry(ROOM.halfW*2-3, 0.09, 0.09), trackMat);
+  tb.position.set(0, ROOM.ceil-1.6, ROOM.back+2.2); scene.add(tb);
+}
+
+/* ---------- the way back: a cave mouth broken through the plaster ---------- */
+const MOUTH = { w:4.2, h:5.4 };
+
+/* irregular arch, drawn in wall coordinates (x across, y up) */
+function mouthPath(){
+  const W=MOUTH.w/2, F=ROOM.floor, T=ROOM.floor+MOUTH.h;
+  return [
+    [-W*0.92, F      ], [-W*1.00, F+1.1 ], [-W*0.86, F+2.2 ],
+    [-W*0.97, F+3.1 ], [-W*0.78, F+4.0 ], [-W*0.55, T-0.55],
+    [-W*0.26, T-0.10], [ W*0.04, T     ], [ W*0.33, T-0.22],
+    [ W*0.61, T-0.72], [ W*0.82, F+3.8 ], [ W*0.94, F+2.9 ],
+    [ W*0.85, F+1.9 ], [ W*1.00, F+0.9 ], [ W*0.88, F     ],
+  ];
+}
+
+function buildDoorway(){
+  const F=ROOM.floor, z=ROOM.front;
+
+  /* rough rock receding behind the mouth — this is what shows through */
+  const rock=makeRockTexture(512,-14); rock.repeat.set(1.3,1.7);
+  const beyond=new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w+2.2, MOUTH.h+1.6),
+    new THREE.MeshStandardMaterial({ map:rock, roughness:1, metalness:0, color:0x30343b }));
+  beyond.position.set(0, F+MOUTH.h/2, z+2.6); scene.add(beyond);
+
+  const dark=new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w+2.2, MOUTH.h+1.6),
+    new THREE.MeshBasicMaterial({ color:0x05070a, transparent:true, opacity:0.66 }));
+  dark.position.set(0, F+MOUTH.h/2, z+2.0); scene.add(dark);
+
+  /* broken rock lip around the cut, so the edge isn't a clean line */
+  const lipTex=makeRockTexture(384,-8);
+  const lipMat=new THREE.MeshStandardMaterial({ map:lipTex, roughness:1, metalness:0, color:0x6f747c });
+  const path=mouthPath();
+  path.forEach((pt,i)=>{
+    const n=2+Math.floor(Math.random()*2);
+    for(let k=0;k<n;k++){
+      const sz=0.16+Math.random()*0.30;
+      const g=new THREE.DodecahedronGeometry(sz,0);
+      const gp=g.attributes.position;
+      for(let j=0;j<gp.count;j++)
+        gp.setXYZ(j, gp.getX(j)*(1+Math.random()*0.5), gp.getY(j)*(1+Math.random()*0.5), gp.getZ(j)*(1+Math.random()*0.5));
+      g.computeVertexNormals();
+      const m=new THREE.Mesh(g,lipMat);
+      const nx=path[(i+1)%path.length];
+      const tX=pt[0]+(nx[0]-pt[0])*(k/n), tY=pt[1]+(nx[1]-pt[1])*(k/n);
+      m.position.set(tX+(Math.random()-0.5)*0.18, tY+(Math.random()-0.5)*0.18, z-0.10-Math.random()*0.28);
+      m.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+      scene.add(m);
+    }
+  });
+
+  /* rubble on the threshold */
+  for(let i=0;i<10;i++){
+    const sz=0.12+Math.random()*0.22;
+    const m=new THREE.Mesh(new THREE.DodecahedronGeometry(sz,0), lipMat);
+    m.position.set((Math.random()-0.5)*MOUTH.w*0.9, F+sz*0.5, z-0.5-Math.random()*1.2);
+    m.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+    scene.add(m);
+  }
+
+  /* warm spill from the cave beyond */
+  const spill=new THREE.PointLight(0xffcf9a, 1.30, 15, 2);
+  spill.position.set(0, F+2.0, z+1.2); scene.add(spill);
+  doorGlow=spill;
+
+  /* click target across the mouth */
+  const hit=new THREE.Mesh(new THREE.PlaneGeometry(MOUTH.w*0.92, MOUTH.h*0.92),
+    new THREE.MeshBasicMaterial({ visible:false }));
+  hit.position.set(0, F+MOUTH.h/2, z-0.4);
+  hit.userData={ isDoor:true, title:'Back to the cave' };
+  scene.add(hit); doorHit=hit;
+}
+
+/* ---------- hang the work ---------- */
+function buildArt(){
+  const loader=new THREE.TextureLoader();
+  // brushed pale metal — catches the uplight and separates from the plaster
+  const frameMat=new THREE.MeshStandardMaterial({color:0xc9cdd4, roughness:0.30, metalness:0.62});
+  const mountMat=new THREE.MeshStandardMaterial({color:0xf2efe8, roughness:0.94});
+  const shadowMat=new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.30});
+  const FR=0.14, FD=0.20, MT=0.13;   // frame face / frame depth / mount reveal
+  const headMat =new THREE.MeshStandardMaterial({color:0x1e2024, roughness:0.4, metalness:0.75});
+
+  ART.forEach((a,idx)=>{
+    const h = a.hero ? HERO_H : a.big ? POSTER_H : ART_H;
+    const w = h * a.ratio;
+
+    const tex=loader.load(a.src);
+    tex.colorSpace=THREE.SRGBColorSpace;
+    tex.anisotropy=8;
+
+    // the work itself — slightly emissive so it reads as lit, not just surfaced
+    const mat=new THREE.MeshStandardMaterial({
+      map:tex, roughness:0.62, metalness:0.0,
+      emissive:0xffffff, emissiveMap:tex, emissiveIntensity:0.30 });
+    const art=new THREE.Mesh(new THREE.PlaneGeometry(w,h), mat);
+
+    const grp=new THREE.Group();
+
+    // soft shadow so the frame sits off the wall
+    const sh=new THREE.Mesh(new THREE.PlaneGeometry(w+FR*2+0.28, h+FR*2+0.28), shadowMat);
+    sh.position.set(0.05, -0.06, 0.005); grp.add(sh);
+
+    // mount board, recessed behind the frame face
+    const mount=new THREE.Mesh(new THREE.PlaneGeometry(w+MT*2, h+MT*2), mountMat);
+    mount.position.z=0.02; grp.add(mount);
+
+    // the work sits proud of the mount, inside the frame well
+    art.position.z=0.035;
+    grp.add(art);
+
+    // four bars — a genuine frame profile with visible depth on every edge
+    const OW=w+MT*2+FR*2, OH=h+MT*2+FR*2;
+    const bar=(bw,bh,bx,by)=>{
+      const m=new THREE.Mesh(new THREE.BoxGeometry(bw,bh,FD), frameMat);
+      m.position.set(bx,by,FD/2); grp.add(m);
+    };
+    bar(OW, FR, 0,  (OH-FR)/2);            // top
+    bar(OW, FR, 0, -(OH-FR)/2);            // bottom
+    bar(FR, OH-FR*2, -(OW-FR)/2, 0);       // left
+    bar(FR, OH-FR*2,  (OW-FR)/2, 0);       // right
+
+    // place against the right wall
+    let px,pz,ry;
+    if(a.wall==='back'){  px=a.u; pz=ROOM.back+0.06;      ry=0; }
+    if(a.wall==='left'){  px=-ROOM.halfW+0.06; pz=a.u;    ry=Math.PI/2; }
+    if(a.wall==='right'){ px= ROOM.halfW-0.06; pz=a.u;    ry=-Math.PI/2; }
+    grp.position.set(px, HANG_Y, pz); grp.rotation.y=ry;
+    scene.add(grp);
+
+    // a small head on the track above each work (geometry only — cheap)
+    const head=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.10,0.26,10), headMat);
+    const off=0.9;
+    head.position.set(
+      px + (a.wall==='left'? off : a.wall==='right'? -off : 0),
+      ROOM.ceil-1.75,
+      pz + (a.wall==='back'? off : 0)
+    );
+    head.rotation.x = a.wall==='back' ? -0.5 : 0;
+    head.rotation.z = a.wall==='left' ? 0.5 : a.wall==='right' ? -0.5 : 0;
+    scene.add(head);
+
+    // soft pool of light on the wall behind the work
+    const wash=new THREE.PointLight(0xfff4e6, 0.55, 7, 2);
+    wash.position.set(
+      px + (a.wall==='left'? 1.2 : a.wall==='right'? -1.2 : 0),
+      HANG_Y+1.4,
+      pz + (a.wall==='back'? 1.2 : 0)
+    );
+    scene.add(wash);
+
+    art.userData={ art:a, base:0.30, wash };
+    works.push(art);
+  });
+}
+
+/* ---------- dust in the light ---------- */
+function buildMotes(){
+  const N=460, pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){
+    pos[i*3]   = (Math.random()-0.5)*ROOM.halfW*2;
+    pos[i*3+1] = ROOM.floor + Math.random()*(ROOM.ceil-ROOM.floor);
+    pos[i*3+2] = ROOM.back + Math.random()*(ROOM.front-ROOM.back);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  motes=new THREE.Points(g, new THREE.PointsMaterial({
+    color:0xfff0dc, size:0.035, transparent:true, opacity:0.30, depthWrite:false }));
+  scene.add(motes);
+}
+
+/* ---------- light ---------- */
+function buildLights(){
+  // low ambient: a gallery is dark, the work is bright
+  scene.add(new THREE.AmbientLight(0x6d7280, 0.42));
+
+  const bounce=new THREE.DirectionalLight(0xd8d2c6, 0.30);
+  bounce.position.set(0, 6, 6); scene.add(bounce);
+
+  // three warm fills down the length of the room
+  const f1=new THREE.PointLight(0xffeed8, 0.50, 26, 2); f1.position.set(0, 3.4, ROOM.back+4); scene.add(f1);
+  const f2=new THREE.PointLight(0xffeed8, 0.44, 26, 2); f2.position.set(0, 3.4, -5); scene.add(f2);
+  const f3=new THREE.PointLight(0xffeed8, 0.44, 26, 2); f3.position.set(0, 3.4, 5); scene.add(f3);
+  const f4=new THREE.PointLight(0x9fb0c4, 0.32, 24, 2); f4.position.set(0, 2.0, ROOM.front-4); scene.add(f4);
+
+  // low warm bounce skimming the rock floor
+  const g1=new THREE.PointLight(0xffd9a8, 0.42, 16, 2); g1.position.set(-6, ROOM.floor+0.6, ROOM.back+5); scene.add(g1);
+  const g2=new THREE.PointLight(0xffd9a8, 0.42, 16, 2); g2.position.set( 6, ROOM.floor+0.6, ROOM.back+5); scene.add(g2);
+  const g3=new THREE.PointLight(0xffd9a8, 0.34, 16, 2); g3.position.set( 0, ROOM.floor+0.6, 4); scene.add(g3);
+  const g4=new THREE.PointLight(0xffd9a8, 0.34, 16, 2); g4.position.set( 0, ROOM.floor+0.6, 13); scene.add(g4);
+}
+
+/* ---------- interaction ---------- */
+function addEvents(){
+  const el=renderer.domElement;
+
+  el.addEventListener("mousedown",e=>{ isDragging=true; dragMoved=0; lastX=e.clientX; lastY=e.clientY; });
+  addEventListener("mouseup",()=>isDragging=false);
+  addEventListener("mousemove",e=>{
+    if(isDragging){
+      const dx=e.clientX-lastX, dy=e.clientY-lastY;
+      dragMoved += Math.abs(dx)+Math.abs(dy);
+      targetYaw   -= dx*0.004;
+      targetPitch -= dy*0.004;
+      targetPitch = Math.max(-0.42, Math.min(0.42, targetPitch));
+      lastX=e.clientX; lastY=e.clientY;
+    }
+    mouse.x=(e.clientX/innerWidth)*2-1;
+    mouse.y=-(e.clientY/innerHeight)*2+1;
+    checkHover(e.clientX, e.clientY);
+  });
+
+  el.addEventListener("touchstart",e=>{ isDragging=true; dragMoved=0;
+    lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; },{passive:true});
+  addEventListener("touchend",()=>isDragging=false);
+  addEventListener("touchmove",e=>{
+    if(!isDragging) return;
+    const dx=e.touches[0].clientX-lastX, dy=e.touches[0].clientY-lastY;
+    dragMoved += Math.abs(dx)+Math.abs(dy);
+    targetYaw   -= dx*0.005;
+    targetPitch -= dy*0.005;
+    targetPitch = Math.max(-0.42, Math.min(0.42, targetPitch));
+    lastX=e.touches[0].clientX; lastY=e.touches[0].clientY;
+  },{passive:true});
+
+  // click, not drag-release
+  el.addEventListener("click",()=>{
+    if(!hovered || dragMoved>=6) return;
+    if(hovered.userData.isDoor){ enterCave(); }
+    else { openWork(hovered.userData.art); }
+  });
+
+  document.getElementById('lb-close').addEventListener('click', closeWork);
+  document.getElementById('lightbox').addEventListener('click', e=>{
+    if(e.target.id==='lightbox') closeWork();
+  });
+  addEventListener('keydown', e=>{ if(e.key==='Escape') closeWork(); });
+
+  addEventListener("resize",()=>{
+    camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+  });
+}
+
+function checkHover(px,py){
+  raycaster.setFromCamera(mouse,camera);
+  const hits=raycaster.intersectObjects(doorHit ? works.concat([doorHit]) : works);
+  const tt=document.getElementById("tooltip");
+  if(hits.length){
+    hovered=hits[0].object;
+    document.body.style.cursor="pointer";
+    const ud=hovered.userData;
+    tt.querySelector(".tt-name").textContent = ud.isDoor ? ud.title : ud.art.title;
+    tt.querySelector(".tt-cta").textContent  = ud.isDoor ? 'Click to enter →' : 'Click to view →';
+    tt.style.left=px+"px"; tt.style.top=py+"px";
+    tt.classList.add("show");
+  } else {
+    hovered=null; document.body.style.cursor="default"; tt.classList.remove("show");
+  }
+}
+
+function openWork(a){
+  const lb=document.getElementById('lightbox');
+  document.getElementById('lb-img').src=a.src;
+  document.getElementById('lb-img').alt=a.title;
+  document.getElementById('lb-title').textContent=a.title;
+  lb.classList.add('show');
+  document.getElementById("tooltip").classList.remove("show");
+}
+function closeWork(){ document.getElementById('lightbox').classList.remove('show'); }
+
+/* walk into the opening, then hand over to the cave */
+let leaving=false;
+function enterCave(){
+  if(leaving) return; leaving=true;
+  document.getElementById("tooltip").classList.remove("show");
+  document.getElementById('fade').classList.add('show');
+  setTimeout(()=>{ location.href='index.html'; }, 1150);
+}
+
+/* ---------- loop ---------- */
+let t=0;
+function animate(){
+  requestAnimationFrame(animate); t+=0.016;
+
+  yaw   += (targetYaw-yaw)*0.08;
+  pitch += (targetPitch-pitch)*0.08;
+  camera.rotation.order="YXZ";
+  camera.rotation.y=yaw; camera.rotation.x=pitch;
+
+  // hovered work lifts slightly out of the wall light
+  works.forEach(w=>{
+    const target = (w===hovered) ? 0.52 : w.userData.base;
+    w.material.emissiveIntensity += (target - w.material.emissiveIntensity)*0.18;
+    if(w.userData.wash){
+      const lt = (w===hovered) ? 0.95 : 0.55;
+      w.userData.wash.intensity += (lt - w.userData.wash.intensity)*0.18;
+    }
+  });
+
+  // uplights breathe very slightly — enough to feel alive, not enough to look like a fault
+  uplights.forEach(u=>{
+    u.sp.intensity = u.base * (0.94 + Math.sin(t*0.7 + u.phase)*0.06);
+  });
+
+  // walking through: drift toward the opening and straighten up
+  if(leaving){
+    camera.position.z += (ROOM.front-1.0 - camera.position.z)*0.035;
+    camera.position.x += (0 - camera.position.x)*0.06;
+    targetYaw   += (Math.PI-targetYaw)*0.10;   // turn to face the mouth on the way out
+    targetPitch += (0-targetPitch)*0.10;
+  }
+
+  // the opening breathes, so it reads as a way out rather than a dark patch
+  if(doorGlow) doorGlow.intensity = 1.25 + Math.sin(t*0.9)*0.16;
+
+  if(motes){ motes.rotation.y = t*0.006; motes.position.y = Math.sin(t*0.18)*0.10; }
+
+  renderer.render(scene,camera);
+}
+init();
+</script>
+</body>
+</html>
